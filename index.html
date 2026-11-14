@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#090b1d"><meta name="description" content="Prism Rush — a neon rhythm platformer.">
+<link rel="manifest" href="manifest.json">
+<title>Prism Rush</title>
+<style>
+:root{color-scheme:dark;--bg:#090b1d;--panel:#11152d;--cyan:#38e8ff;--pink:#ff4fd8;--purple:#9b6cff}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;touch-action:manipulation}
+body{display:grid;place-items:center;background:radial-gradient(ellipse at 50% 35%,#20204d 0,#090b1d 65%)}
+#app{width:min(100vw,960px);height:min(100dvh,620px);position:relative;display:flex;flex-direction:column;padding:12px;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px}.brand{font-weight:1000;letter-spacing:2px;font-size:clamp(18px,4vw,26px);text-shadow:0 0 18px var(--cyan)}.brand span{color:var(--pink)}
+.hud{display:flex;gap:8px;align-items:center;font-size:13px;color:#dce5ff}.pill{background:#171c3b;border:1px solid #39406e;border-radius:99px;padding:7px 11px}
+#stage{position:relative;flex:1;min-height:230px;border:1px solid #39406e;border-radius:18px;overflow:hidden;background:#080b20;box-shadow:0 0 35px #5c4bff22}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#overlay{position:absolute;inset:0;display:grid;place-items:center;background:#07091bcc;padding:20px;text-align:center}
+.panel{width:min(100%,430px);padding:24px;border:1px solid #5552a0;border-radius:22px;background:linear-gradient(145deg,#1b2048f2,#10132cf5);box-shadow:0 0 40px #7c4dff30}
+h1{font-size:clamp(34px,8vw,54px);line-height:1;margin:0 0 8px;letter-spacing:2px;text-shadow:0 0 22px #39dfff}.sub{color:#b8c6f5;margin:0 0 20px;font-size:14px}
+button{border:0;border-radius:12px;padding:12px 16px;background:linear-gradient(100deg,#25d9ff,#9b6cff);color:#080b1c;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 5px 18px #4a7cff35}
+button.secondary{background:#24294d;color:#fff;border:1px solid #505987;box-shadow:none}button:active{transform:scale(.97)}.actions{display:flex;justify-content:center;gap:9px;flex-wrap:wrap}
+.tiny{font-size:12px;color:#aab7e7;margin-top:14px}.hidden{display:none!important}
+footer{display:flex;justify-content:space-between;align-items:center;gap:8px;color:#9ca9d8;font-size:12px}.controls{display:flex;gap:7px}
+#progress{height:5px;background:#20264a;border-radius:9px;overflow:hidden}#bar{height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--pink))}
+@media(max-height:500px){#app{padding:6px;gap:5px}header{min-height:26px}.panel{padding:14px}h1{font-size:32px}.sub{margin-bottom:10px}button{padding:9px 13px}}
+</style></head>
+<body><main id="app">
+<header><div class="brand">PRISM<span> RUSH</span></div><div class="hud"><span class="pill">◆ <b id="gems">0</b></span><span class="pill">BEST <b id="best">0</b>%</span></div></header>
+<div id="progress"><div id="bar"></div></div>
+<section id="stage"><canvas id="game"></canvas><div id="overlay"><div class="panel">
+<h1>PRISM RUSH</h1><p class="sub">Jump. Fly. Survive the beat.</p>
+<div class="actions"><button id="start">PLAY</button><button class="secondary" id="practice">PRACTICE MODE</button></div>
+<p class="tiny">Tap anywhere to jump • Hold during flight • Avoid the spikes!</p>
+</div></div></section>
+<footer><span id="message">A neon rhythm challenge</span><div class="controls"><button class="secondary" id="sound">♫ SOUND ON</button><button class="secondary" id="pause">Ⅱ PAUSE</button></div></footer>
+</main>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),overlay=document.getElementById('overlay');
+const $=id=>document.getElementById(id);
+let W=800,H=420,dpr=1,raf=0,last=0,mode='menu',practice=false,muted=false,audio=null;
+let world=0,speed=280,progress=0,score=0,gems=Number(localStorage.prismGems||0),best=Number(localStorage.prismBest||0),checkpoint=0,gravity=1,flight=false,flash=0;
+const player={x:120,y:0,vy:0,size:27,rot:0,ground:false};
+let obstacles=[],particles=[],collected=new Set();
+$('gems').textContent=gems;$('best').textContent=best;
+function resize(){const r=canvas.getBoundingClientRect();dpr=Math.min(devicePixelRatio||1,2);W=Math.max(320,r.width);H=Math.max(220,r.height);canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);player.x=Math.max(65,W*.17);if(mode!=='play')player.y=H*.72-player.size;}
+new ResizeObserver(resize).observe(canvas);resize();
+function beep(freq=440,dur=.07,type='sine',vol=.035){if(muted)return;try{audio=audio||new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();let o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(vol,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+dur)}catch(e){}}
+function reset(p=false){practice=p;world=0;speed=280;progress=0;score=0;checkpoint=0;gravity=1;flight=false;obstacles=[];particles=[];collected.clear();player.y=H*.72-player.size;player.vy=0;player.rot=0;player.ground=true;spawnInitial();$('bar').style.width='0%';}
+function spawnInitial(){let x=W+100;for(let i=0;i<24;i++){x+=210+Math.random()*100;let type=i===8?'portal':i===15?'rocket':Math.random()<.18?'double':'spike';obstacles.push({x,type,used:false,phase:Math.random()*6});}}
+function start(p=false){cancelAnimationFrame(raf);reset(p);mode='play';overlay.classList.add('hidden');$('message').textContent=p?'Practice mode — checkpoints enabled':'Reach the finish line!';last=performance.now();raf=requestAnimationFrame(loop);beep(660,.12,'triangle');}
+function show(title,desc,buttons){mode='menu';overlay.innerHTML='<div class="panel"><h1>'+title+'</h1><p class="sub">'+desc+'</p><div class="actions">'+buttons+'</div><p class="tiny">Tap to jump • Hold to fly • Press P to pause</p></div>';overlay.classList.remove('hidden');}
+function end(win=false){mode='over';cancelAnimationFrame(raf);if(progress>best){best=Math.floor(progress);localStorage.prismBest=best;$('best').textContent=best;}if(win){gems+=10;localStorage.prismGems=gems;$('gems').textContent=gems;}show(win?'LEVEL COMPLETE!':'TRY AGAIN',win?'Amazing run! +10 prism gems.':'You hit an obstacle. One more try?', '<button id="retry">RETRY</button><button class="secondary" id="home">HOME</button>');$('retry').onclick=()=>start(practice);$('home').onclick=home;beep(win?880:110,.25,win?'triangle':'sawtooth');}
+function home(){cancelAnimationFrame(raf);mode='menu';show('PRISM RUSH','Jump. Fly. Survive the beat.','<button id="playAgain">PLAY</button><button class="secondary" id="practiceAgain">PRACTICE MODE</button>');$('playAgain').onclick=()=>start(false);$('practiceAgain').onclick=()=>start(true);}
+function jump(){if(mode!=='play'){if(mode==='menu')start(false);return;}if(flight){player.vy=-gravity*250;beep(620,.045,'sine',.018);}else if(player.ground){player.vy=-gravity*590;player.ground=false;beep(520,.06,'square',.025);}}
+let holding=false;
+function actionDown(e){e.preventDefault();holding=true;if(mode==='play'&&flight){player.vy=-gravity*420;beep(700,.04,'sine',.012);}else jump();}
+function actionUp(){holding=false;}
+canvas.addEventListener('pointerdown',actionDown);window.addEventListener('pointerup',actionUp);
+window.addEventListener('keydown',e=>{if(['Space','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!e.repeat)jump();}if(e.code==='KeyP')togglePause();});
+function togglePause(){if(mode==='play'){mode='paused';cancelAnimationFrame(raf);show('PAUSED','Take a breath. Ready when you are.','<button id="resume">RESUME</button><button class="secondary" id="quit">HOME</button>');$('resume').onclick=()=>{mode='play';overlay.classList.add('hidden');last=performance.now();raf=requestAnimationFrame(loop);};$('quit').onclick=home;}}
+$('start').onclick=()=>start(false);$('practice').onclick=()=>start(true);$('pause').onclick=togglePause;
+$('sound').onclick=()=>{muted=!muted;$('sound').textContent=muted?'♫ SOUND OFF':'♫ SOUND ON';};
+function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+function spawn(){let far=obstacles.length?Math.max(...obstacles.map(o=>o.x)):W;while(far<W+500){far+=235+Math.random()*125;let r=Math.random(),type=r<.11?'portal':r<.21?'rocket':r<.35?'double':'spike';obstacles.push({x:far,type,used:false,phase:Math.random()*6});}}
+function burst(x,y,color){for(let i=0;i<9;i++)particles.push({x,y,vx:(Math.random()-.5)*220,vy:(Math.random()-.5)*220,life:.45,color});}
+function update(dt){
+ world+=dt;const beat=Math.floor(world*2.2);if(beat!==Math.floor((world-dt)*2.2))beep(beat%4===0?170:110,.035,'sine',.008);
+ speed=Math.min(390,280+world*1.5);let dx=speed*dt;obstacles.forEach(o=>o.x-=dx);obstacles=obstacles.filter(o=>o.x>-100);spawn();
+ if(!flight){player.vy+=1450*gravity*dt;player.y+=player.vy*dt;const floor=gravity===1?H*.78-player.size:H*.16;if(gravity===1&&player.y>=floor){player.y=floor;player.vy=0;player.ground=true;}else if(gravity===-1&&player.y<=floor){player.y=floor;player.vy=0;player.ground=true;}else player.ground=false;player.rot+=dt*(player.ground?0:7);}
+ else{player.vy+=(holding?-800:420)*gravity*dt;player.vy=Math.max(-380,Math.min(380,player.vy));player.y+=player.vy*dt;player.y=Math.max(H*.12,Math.min(H*.72,player.y));}
+ const box={x:player.x+4,y:player.y+4,w:player.size-8,h:player.size-8};
+ for(const o of obstacles){if(o.used)continue;
+  if(o.type==='portal'&&Math.abs(o.x-player.x)<16){o.used=true;gravity*=-1;flight=false;player.vy=0;player.ground=false;burst(player.x,player.y,'#b66cff');beep(780,.16,'triangle');}
+  if(o.type==='rocket'&&Math.abs(o.x-player.x)<18){o.used=true;flight=true;gravity=1;player.vy=-120;burst(player.x,player.y,'#39eaff');}
+  if(o.type==='gem'&&Math.abs(o.x-player.x)<20){o.used=true;gems++;localStorage.prismGems=gems;$('gems').textContent=gems;beep(990,.1,'sine');}
+  if(o.type==='spike'||o.type==='double'){let n=o.type==='double'?2:1;for(let k=0;k<n;k++){let h=34,w=32,x=o.x+k*27,y=gravity===1?H*.78-h:H*.16;if(rectHit(box,{x:x+5,y:y+5,w:w-10,h:h-5}))return end(false);}}
+  if(o.type==='block'&&rectHit(box,{x:o.x,y:H*.78-42,w:38,h:42}))return end(false);
+ }
+ progress=Math.min(100,world/48*100);$('bar').style.width=progress+'%';if(practice&&progress>checkpoint+20)checkpoint=Math.floor(progress/20)*20;
+ particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;});particles=particles.filter(p=>p.life>0);
+ if(world>=48)end(true);
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);let bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,'#10163a');bg.addColorStop(1,'#08091b');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+ ctx.strokeStyle='#29305b';ctx.lineWidth=1;for(let x=-(world*speed*.25%42);x<W;x+=42){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}for(let y=20;y<H;y+=42){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+ const floor=H*.78;ctx.fillStyle='#151d45';ctx.fillRect(0,floor,W,H-floor);ctx.fillStyle='#36eaff';ctx.fillRect(0,floor,W,3);ctx.fillStyle='#ff4fd8';ctx.fillRect(0,H*.16,W,2);
+ obstacles.forEach(o=>{ctx.save();if(o.type==='spike'||o.type==='double'){let n=o.type==='double'?2:1;ctx.shadowBlur=16;ctx.shadowColor='#ff4fd8';ctx.fillStyle='#ff4fd8';for(let k=0;k<n;k++){let x=o.x+k*27,y=gravity===1?floor: H*.16;ctx.beginPath();if(gravity===1){ctx.moveTo(x,y);ctx.lineTo(x+16,y-35);ctx.lineTo(x+32,y);}else{ctx.moveTo(x,y);ctx.lineTo(x+16,y+35);ctx.lineTo(x+32,y);}ctx.closePath();ctx.fill();}}
+ else if(o.type==='portal'){ctx.strokeStyle='#b86cff';ctx.lineWidth=6;ctx.shadowBlur=20;ctx.shadowColor='#b86cff';ctx.beginPath();ctx.ellipse(o.x+10,H*.47,11,48,0,0,Math.PI*2);ctx.stroke();}
+ else if(o.type==='rocket'){ctx.fillStyle='#39eaff';ctx.shadowBlur=18;ctx.shadowColor='#39eaff';ctx.fillRect(o.x,H*.43,24,35);ctx.beginPath();ctx.moveTo(o.x+24,H*.43);ctx.lineTo(o.x+42,H*.5);ctx.lineTo(o.x+24,H*.58);ctx.fill();}
+ else{ctx.fillStyle='#ffd166';ctx.fillRect(o.x,floor-42,38,42);}ctx.restore();});
+ ctx.save();ctx.translate(player.x+player.size/2,player.y+player.size/2);ctx.rotate(player.rot);ctx.shadowBlur=20;ctx.shadowColor='#39eaff';ctx.fillStyle='#39eaff';ctx.fillRect(-player.size/2,-player.size/2,player.size,player.size);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(-player.size/2+4,-player.size/2+4,player.size-8,player.size-8);ctx.fillStyle='#101735';ctx.fillRect(-6,-5,4,4);ctx.fillRect(3,-5,4,4);ctx.restore();
+ particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x,p.y,4,4);});ctx.globalAlpha=1;
+ ctx.fillStyle='#dce7ff';ctx.font='12px system-ui';ctx.fillText(flight?'ROCKET FLIGHT':gravity===-1?'GRAVITY FLIPPED':'RUN',14,22);
+}
+function loop(t){if(mode!=='play')return;let dt=Math.min((t-last)/1000,.035);last=t;update(dt);if(mode==='play'){draw();raf=requestAnimationFrame(loop);}}
+draw();
+if('serviceWorker'in navigator&&location.protocol.startsWith('http'))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+})();
+</script></body></html>
